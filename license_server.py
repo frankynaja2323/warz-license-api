@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request, render_template_string, send_file
 
 app = Flask(__name__)
 
@@ -142,3 +142,13 @@ def admin_add():
         return jsonify({"status": "error", "message": "license_key already exists"}), 409
 
     return jsonify({"status": "ok", "message": f"Added {key} expires {expire_date}"}), 201
+
+
+@app.route("/admin", methods=["GET"])
+def admin_dashboard():
+    admin_file = Path(__file__).parent / "admin.html"
+
+    if not admin_file.exists():
+        return "admin.html not found", 404
+
+    return send_file(admin_file)
