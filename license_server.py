@@ -1,9 +1,3 @@
-"""
-license_server.py  —  WarZ Item Extractor License API
-======================================================
-Deploy ฟรีบน Render.com (Free Tier)
-"""
-
 import hashlib
 import json
 import os
@@ -151,35 +145,3 @@ def admin_add():
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
-```[cite: 11]
-
----
-
-### ไฟล์ที่ 2: `requirements.txt`
-สร้างไฟล์ชื่อ `requirements.txt` ในโฟลเดอร์เดียวกัน แล้วพิมพ์ข้อความนี้ลงไป 2 บรรทัดแล้วบันทึกครับ:
-```text
-flask
-gunicorn
-```[cite: 8]
-
----
-
-### ไฟล์ที่ 3: `render.yaml`
-สร้างไฟล์ชื่อ `render.yaml` ในโฟลเดอร์เดียวกัน แล้วก๊อปปี้ข้อความนี้ไปวางแล้วบันทึกครับ:
-```yaml
-services:
-  - type: web
-    name: warz-license-api
-    env: python
-    region: singapore
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn license_server:app
-    envVars:
-      - key: SERVER_API_KEY
-        generateValue: true
-```[cite: 7]
-
----
-
-ลองสร้างทั้ง 3 ไฟล์นี้เก็บไว้ในคอมพิวเตอร์ของคุณให้เรียบร้อยก่อนนะครับ ถ้าเสร็จแล้วบอกผมได้เลย เดี๋ยวเราค่อยเอาขึ้น GitHub ไปด้วยกันทีละสเต็ปครับ!
