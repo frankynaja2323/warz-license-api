@@ -129,4 +129,16 @@ def admin_add():
     try:
         datetime.fromisoformat(expire_date)
     except ValueError:
-        return jsonify({"status": "error", "message": "expire_
+        return jsonify({"status": "error", "message": "expire_date format: YYYY-MM-DD"}), 400
+
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO licenses (license_key, expire_date, note) VALUES (?, ?, ?)",
+                (key, expire_date, note),
+            )
+            conn.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"status": "error", "message": "license_key already exists"}), 409
+
+    return jsonify({"status": "ok", "message": f"Added {key} expires {expire_date}"}), 201
