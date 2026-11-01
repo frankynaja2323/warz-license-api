@@ -298,6 +298,39 @@ def admin_list():
 # ============================================================
 # ADMIN DASHBOARD
 # ============================================================
+@app.route("/admin/reset_hwid", methods=["POST"])
+@require_api_key
+def admin_reset_hwid():
+    data = request.get_json(silent=True) or {}
+    license_key = str(data.get("license_key", "")).strip()
+
+    if not license_key:
+        return jsonify({
+            "status": "error",
+            "message": "license_key required"
+        }), 400
+
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE licenses
+            SET hwid_bound = NULL, last_seen = NULL
+            WHERE license_key = ?
+            """,
+            (license_key,)
+        )
+        conn.commit()
+
+        if cursor.rowcount == 0:
+            return jsonify({
+                "status": "error",
+                "message": "License key not found"
+            }), 404
+
+    return jsonify({
+        "status": "ok",
+        "message": "HWID reset successfully"
+    }), 200
 
 @app.route("/admin", methods=["GET"])
 def admin_dashboard():
