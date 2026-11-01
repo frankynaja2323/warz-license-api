@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <title>WarZ License Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#0a0c10] text-[#f8fafc] font-sans min-h-screen p-6">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6 text-[#d4af37]">🛡️ WarZ License Admin Dashboard</h1>
+        
+        <!-- API Key Config -->
+        <div class="bg-[#10141d] p-4 rounded-lg border border-[#222a3a] mb-6 shadow-lg">
+            <label class="block text-sm font-semibold mb-2 text-[#8a96a8]">Admin API Key:</label>
+            <input type="password" id="apiKey" placeholder="ใส่ SERVER_API_KEY ที่ตั้งไว้บน Render" 
+                   class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]">
+        </div>
+
+        <!-- Add License Form -->
+        <div class="bg-[#10141d] p-6 rounded-lg border border-[#222a3a] mb-6 shadow-lg">
+            <h2 class="text-lg font-bold mb-4 text-[#34d399]">➕ เพิ่ม License ใหม่</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs text-[#8a96a8] mb-1">License Key</label>
+                    <input type="text" id="newKey" value="WARZ-" class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
+                </div>
+                <div>
+                    <label class="block text-xs text-[#8a96a8] mb-1">วันหมดอายุ (Expire Date)</label>
+                    <input type="date" id="newExpire" class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
+                </div>
+                <div>
+                    <label class="block text-xs text-[#8a96a8] mb-1">หมายเหตุ (ชื่อลูกค้า)</label>
+                    <input type="text" id="newNote" placeholder="เช่น สมชาย (30 วัน)" class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
+                </div>
+            </div>
+            <button onclick="addLicense()" class="bg-[#d4af37] text-[#181d2a] font-bold px-4 py-2 rounded hover:bg-[#b88628] transition">บันทึกและสร้าง Key</button>
+        </div>
+
+        <!-- License List Table -->
+        <div class="bg-[#10141d] p-6 rounded-lg border border-[#222a3a] shadow-lg">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-[#38bdf8]">📋 รายชื่อ License ทั้งหมด</h2>
+                <button onclick="loadLicenses()" class="bg-[#222a3a] text-white px-3 py-1.5 rounded text-sm hover:bg-[#26354d] transition">🔄 รีเฟรชข้อมูล</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-[#222a3a] text-[#8a96a8] text-sm">
+                            <th class="p-3">License Key</th>
+                            <th class="p-3">Note / ลูกค้า</th>
+                            <th class="p-3">HWID ปัจจุบัน</th>
+                            <th class="p-3">หมดอายุ</th>
+                            <th class="p-3">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="licenseTable" class="text-sm">
+                        <!-- Data will load here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('apiKey').value = localStorage.getItem('warz_admin_key') || '';
+        document.getElementById('apiKey').addEventListener('input', (e) => {
+            localStorage.setItem('warz_admin_key', e.target.value);
+        });
+
+        async function apiRequest(endpoint, data = {}) {
+            const key = document.getElementById('apiKey').value;
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+                body: JSON.stringify(data)
+            });
+            return await res.json();
+        }
+
+        async function addLicense() {
+            const license_key = document.getElementById('newKey').value;
+            const expire_date = document.getElementById('newExpire').value;
+            const note = document.getElementById('newNote').value;
+
+            const res = await apiRequest('/admin/add', { license_key, expire_date, note });
+            if (res.status === 'ok') {
+                alert('✨ เพิ่ม License สำเร็จ!');
+                loadLicenses();
+            } else {
+                alert('❌ ผิดพลาด: ' + (res.message || 'ไม่สามารถเพิ่มได้'));
+            }
+        }
+
+        async function loadLicenses() {
+            const key = document.getElementById('apiKey').value;
+            const tbody = document.getElementById('licenseTable');
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-[#8a96a8]">กำลังโหลดข้อมูล...</td></tr>`;
+            
+            try {
+                const res = await fetch('/admin/list', {
+                    headers: { 'X-API-Key': key }
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    tbody.innerHTML = '';
+                    data.licenses.forEach(item => {
+                        const tr = document.createElement('tr');
+                        tr.className = "border-b border-[#222a3a]/50 hover:bg-[#161b26]";
+                        tr.innerHTML = `
+                            <td class="p-3 font-mono text-[#d4af37]">${item.license_key}</td>
+                            <td class="p-3">${item.note || '-'}</td>
+                            <td class="p-3 font-mono text-xs text-[#8a96a8] truncate max-w-[150px]">${item.hwid_bound || 'ยังไม่ผูกเครื่อง'}</td>
+                            <td class="p-3 text-xs">${item.expire_date}</td>
+                            <td class="p-3">
+                                <button onclick="resetHwid('${item.license_key}')" class="bg-red-900/40 text-red-400 border border-red-700/50 px-2 py-1 rounded text-xs hover:bg-red-900 transition">Reset HWID</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400">API Key ไม่ถูกต้อง หรือเกิดข้อผิดพลาด</td></tr>`;
+                }
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400">เชื่อมต่อ Server ไม่สำเร็จ</td></tr>`;
+            }
+        }
+
+        async function resetHwid(license_key) {
+            if (!confirm(`ต้องการรีเซ็ต HWID ของคีย์ ${license_key} ใช่หรือไม่?`)) return;
+            const res = await apiRequest('/admin/reset_hwid', { license_key });
+            if (res.status === 'success') {
+                alert('🔄 รีเซ็ต HWID สำเร็จ!');
+                loadLicenses();
+            } else {
+                alert('❌ ผิดพลาด: ' + res.message);
+            }
+        }
+
+        window.onload = loadLicenses;
+    </script>
+</body>
+</html>
