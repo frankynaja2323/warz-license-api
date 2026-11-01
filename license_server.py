@@ -1,7 +1,8 @@
-import hashlib
+
 import os
+import re
 import sqlite3
-from datetime import date, datetime, time, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 
@@ -10,15 +11,21 @@ from flask import Flask, jsonify, request, send_file
 app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "licenses.db"
+DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# ตั้งค่า SERVER_API_KEY ใน Render > Environment
-# ห้ามนำค่านี้ไปใส่ในโปรแกรม EXE
+DB_PATH = DATA_DIR / "usage.db"
 SERVER_API_KEY = os.environ.get("SERVER_API_KEY", "").strip()
+
+OFFLINE_AFTER_SECONDS = 120
+
+
+def now_utc():
+    return datetime.now(timezone.utc)
 
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=20)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -26,328 +33,247 @@ def get_db():
 def init_db():
     with get_db() as conn:
         conn.execute("""
-            CREATE TABLE IF NOT EXISTS licenses (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                license_key TEXT    NOT NULL UNIQUE,
-                hwid_bound  TEXT    DEFAULT NULL,
-                expire_date TEXT    NOT NULL,
-                is_active   INTEGER NOT NULL DEFAULT 1,
-                note        TEXT    DEFAULT '',
-                created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-                last_seen   TEXT    DEFAULT NULL
+            CREATE TABLE IF NOT EXISTS installations (
+                installation_id TEXT PRIMARY KEY,
+                first_seen TEXT NOT NULL,
+                last_seen TEXT NOT NULL,
+                launch_count INTEGER NOT NULL DEFAULT 1,
+                app_version TEXT NOT NULL DEFAULT ''
             )
         """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS usage_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                installation_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                app_version TEXT NOT NULL DEFAULT ''
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_started
+            ON usage_sessions(started_at)
+        """)
+
         conn.commit()
 
 
 init_db()
 
 
-def require_api_key(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        # Fail closed หากยังไม่ได้ตั้งค่า secret บน Render
+def require_api_key(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
         if not SERVER_API_KEY:
-            app.logger.error("SERVER_API_KEY is not configured")
             return jsonify({
                 "status": "error",
-                "message": "Server admin authentication is not configured"
-            }), 500
+                "message": "Admin API key is not configured"
+            }), 503
 
-        supplied_key = request.headers.get("X-API-Key", "")
-        if supplied_key != SERVER_API_KEY:
+        if request.headers.get("X-API-Key", "") != SERVER_API_KEY:
             return jsonify({
                 "status": "forbidden",
                 "message": "Invalid API key"
             }), 403
 
-        return f(*args, **kwargs)
+        return fn(*args, **kwargs)
 
-    return decorated
-
-
-def hash_hwid(hwid: str) -> str:
-    return hashlib.sha256(hwid.encode("utf-8")).hexdigest()
+    return wrapper
 
 
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def parse_expiry(value: str) -> datetime:
-    """
-    รองรับ YYYY-MM-DD (หมดอายุเมื่อจบวันนั้น UTC)
-    และ ISO datetime เช่น 2026-12-31T23:59:59+00:00
-    """
-    value = value.strip()
-
-    try:
-        parsed_date = date.fromisoformat(value)
-        return datetime.combine(
-            parsed_date,
-            time.max,
-            tzinfo=timezone.utc
-        )
-    except ValueError:
-        parsed_dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-        if parsed_dt.tzinfo is None:
-            parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
-
-        return parsed_dt.astimezone(timezone.utc)
-
-
-@app.route("/", methods=["GET"])
+@app.get("/")
 def health():
     return jsonify({
         "status": "ok",
-        "service": "WarZ License API"
-    }), 200
+        "service": "WarZ Usage Monitor"
+    })
 
 
-# ============================================================
-# CLIENT LICENSE CHECK
-# โปรแกรมลูกค้าเรียก endpoint นี้โดยไม่ต้องใช้ Admin API Key
-# ============================================================
-
-@app.route("/check", methods=["POST"])
-def check_license():
+@app.post("/usage/heartbeat")
+def usage_heartbeat():
     data = request.get_json(silent=True) or {}
 
-    license_key = str(data.get("license_key", "")).strip()
-    hwid_raw = str(data.get("hwid", "")).strip()
+    installation_id = str(
+        data.get("installation_id", "")
+    ).strip()
 
-    if not license_key or not hwid_raw:
+    event = str(
+        data.get("event", "heartbeat")
+    ).strip().lower()
+
+    app_version = str(
+        data.get("app_version", "")
+    )[:32]
+
+    if not re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f-]{27,}",
+        installation_id,
+        re.I
+    ):
         return jsonify({
-            "status": "invalid",
-            "message": "Missing license_key or hwid"
+            "status": "error",
+            "message": "Invalid installation ID"
         }), 400
 
-    hwid_hash = hash_hwid(hwid_raw)
+    if event not in ("launch", "heartbeat"):
+        event = "heartbeat"
+
+    now = now_utc().isoformat()
 
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM licenses WHERE license_key = ?",
-            (license_key,)
+
+        existing = conn.execute(
+            """
+            SELECT installation_id
+            FROM installations
+            WHERE installation_id = ?
+            """,
+            (installation_id,)
         ).fetchone()
 
-        if not row:
-            return jsonify({
-                "status": "invalid",
-                "message": "License key not found"
-            }), 200
-
-        if not row["is_active"]:
-            return jsonify({
-                "status": "invalid",
-                "message": "License is disabled"
-            }), 200
-
-        try:
-            expire_dt = parse_expiry(row["expire_date"])
-        except ValueError:
-            app.logger.exception(
-                "Invalid expire_date for license record"
-            )
-            return jsonify({
-                "status": "invalid",
-                "message": "Invalid expire_date in database"
-            }), 200
-
-        if now_utc() > expire_dt:
-            return jsonify({
-                "status": "expired",
-                "message": f"License expired on {row['expire_date']}",
-                "expire_date": row["expire_date"]
-            }), 200
-
-        if not row["hwid_bound"]:
-            conn.execute(
-                """
-                UPDATE licenses
-                SET hwid_bound = ?, last_seen = ?
-                WHERE license_key = ?
-                """,
-                (
-                    hwid_hash,
-                    now_utc().isoformat(),
-                    license_key
-                )
-            )
-
-        elif row["hwid_bound"] != hwid_hash:
-            return jsonify({
-                "status": "hwid_mismatch",
-                "message": "License is bound to a different machine"
-            }), 200
+        if existing:
+            conn.execute("""
+                UPDATE installations
+                SET last_seen = ?,
+                    app_version = ?,
+                    launch_count = launch_count + ?
+                WHERE installation_id = ?
+            """, (
+                now,
+                app_version,
+                1 if event == "launch" else 0,
+                installation_id
+            ))
 
         else:
-            conn.execute(
-                """
-                UPDATE licenses
-                SET last_seen = ?
-                WHERE license_key = ?
-                """,
-                (
-                    now_utc().isoformat(),
-                    license_key
-                )
-            )
+            conn.execute("""
+                INSERT INTO installations
+                (installation_id, first_seen, last_seen,
+                 launch_count, app_version)
+                VALUES (?, ?, ?, 1, ?)
+            """, (
+                installation_id,
+                now,
+                now,
+                app_version
+            ))
+
+        if event == "launch":
+            conn.execute("""
+                INSERT INTO usage_sessions
+                (installation_id, started_at, app_version)
+                VALUES (?, ?, ?)
+            """, (
+                installation_id,
+                now,
+                app_version
+            ))
 
         conn.commit()
 
-    return jsonify({
-        "status": "valid",
-        "message": "License OK",
-        "expire_date": row["expire_date"]
-    }), 200
+    return jsonify({"status": "ok"}), 200
 
 
-# ============================================================
-# ADMIN: ADD LICENSE
-# ต้องส่ง Header: X-API-Key
-# ============================================================
-
-@app.route("/admin/add", methods=["POST"])
+@app.get("/admin/stats")
 @require_api_key
-def admin_add():
-    data = request.get_json(silent=True) or {}
+def admin_stats():
 
-    key = str(data.get("license_key", "")).strip()
-    expire_date = str(data.get("expire_date", "")).strip()
-    note = str(data.get("note", "")).strip()
+    now = now_utc()
 
-    if not key or not expire_date:
-        return jsonify({
-            "status": "error",
-            "message": "license_key and expire_date required"
-        }), 400
+    today_start = now.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0
+    ).isoformat()
 
-    try:
-        parse_expiry(expire_date)
-    except ValueError:
-        return jsonify({
-            "status": "error",
-            "message": (
-                "expire_date format must be YYYY-MM-DD "
-                "or ISO datetime"
-            )
-        }), 400
+    online_cutoff = (
+        now - timedelta(seconds=OFFLINE_AFTER_SECONDS)
+    ).isoformat()
 
-    try:
-        with get_db() as conn:
-            conn.execute(
-                """
-                INSERT INTO licenses (license_key, expire_date, note)
-                VALUES (?, ?, ?)
-                """,
-                (key, expire_date, note)
-            )
-            conn.commit()
+    with get_db() as conn:
 
-    except sqlite3.IntegrityError:
-        return jsonify({
-            "status": "error",
-            "message": "license_key already exists"
-        }), 409
+        total = conn.execute(
+            "SELECT COUNT(*) FROM installations"
+        ).fetchone()[0]
+
+        online = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM installations
+            WHERE last_seen >= ?
+            """,
+            (online_cutoff,)
+        ).fetchone()[0]
+
+        today = conn.execute(
+            """
+            SELECT COUNT(DISTINCT installation_id)
+            FROM usage_sessions
+            WHERE started_at >= ?
+            """,
+            (today_start,)
+        ).fetchone()[0]
+
+        launches = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM usage_sessions
+            WHERE started_at >= ?
+            """,
+            (today_start,)
+        ).fetchone()[0]
 
     return jsonify({
         "status": "ok",
-        "message": f"Added {key} expires {expire_date}"
-    }), 201
+        "total_installations": total,
+        "online_installations": online,
+        "active_today": today,
+        "launches_today": launches,
+        "offline_after_seconds": OFFLINE_AFTER_SECONDS,
+        "server_time": now.isoformat()
+    })
 
 
-# ============================================================
-# ADMIN: LIST LICENSES
-# แก้ปัญหา GET /admin/list ตอบ 404
-# ต้องส่ง Header: X-API-Key
-# ============================================================
-
-@app.route("/admin/list", methods=["GET"])
+@app.get("/admin/recent")
 @require_api_key
-def admin_list():
+def admin_recent():
+
+    try:
+        limit = max(
+            1,
+            min(int(request.args.get("limit", "50")), 200)
+        )
+    except ValueError:
+        limit = 50
+
     with get_db() as conn:
         rows = conn.execute("""
-            SELECT
-                id,
-                license_key,
-                hwid_bound,
-                expire_date,
-                is_active,
-                note,
-                created_at,
-                last_seen
-            FROM licenses
+            SELECT installation_id, started_at, app_version
+            FROM usage_sessions
             ORDER BY id DESC
-        """).fetchall()
-
-    licenses = []
-
-    for row in rows:
-        item = dict(row)
-        item["hwid_bound"] = bool(item["hwid_bound"])
-        item["is_active"] = bool(item["is_active"])
-        licenses.append(item)
+            LIMIT ?
+        """, (limit,)).fetchall()
 
     return jsonify({
         "status": "ok",
-        "licenses": licenses
-    }), 200
+        "sessions": [dict(row) for row in rows]
+    })
 
 
-# ============================================================
-# ADMIN DASHBOARD
-# ============================================================
-@app.route("/admin/reset_hwid", methods=["POST"])
-@require_api_key
-def admin_reset_hwid():
-    data = request.get_json(silent=True) or {}
-    license_key = str(data.get("license_key", "")).strip()
-
-    if not license_key:
-        return jsonify({
-            "status": "error",
-            "message": "license_key required"
-        }), 400
-
-    with get_db() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE licenses
-            SET hwid_bound = NULL, last_seen = NULL
-            WHERE license_key = ?
-            """,
-            (license_key,)
-        )
-        conn.commit()
-
-        if cursor.rowcount == 0:
-            return jsonify({
-                "status": "error",
-                "message": "License key not found"
-            }), 404
-
-    return jsonify({
-        "status": "ok",
-        "message": "HWID reset successfully"
-    }), 200
-
-@app.route("/admin", methods=["GET"])
+@app.get("/admin")
 def admin_dashboard():
-    admin_file = BASE_DIR / "admin.html"
 
-    if not admin_file.is_file():
-        return (
-            "admin.html not found; include it in the Render deployment",
-            404
-        )
+    path = BASE_DIR / "admin.html"
 
-    return send_file(admin_file)
+    if not path.is_file():
+        return "admin.html not found", 404
+
+    return send_file(path)
 
 
 if __name__ == "__main__":
-    # สำหรับทดสอบในเครื่องเท่านั้น
-    # Render ควรใช้ Gunicorn ตาม Start Command ของบริการ
     app.run(
         host="0.0.0.0",
         port=int(os.environ.get("PORT", "5000"))
