@@ -1,7 +1,7 @@
 import hashlib
 import os
 import sqlite3
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timezone
 from functools import wraps
 from pathlib import Path
 
@@ -60,7 +60,9 @@ def require_api_key(f):
                 "status": "forbidden",
                 "message": "Invalid API key"
             }), 403
+
         return f(*args, **kwargs)
+
     return decorated
 
 
@@ -78,15 +80,20 @@ def parse_expiry(value: str) -> datetime:
     และ ISO datetime เช่น 2026-12-31T23:59:59+00:00
     """
     value = value.strip()
+
     try:
         parsed_date = date.fromisoformat(value)
         return datetime.combine(
-            parsed_date, time.max, tzinfo=timezone.utc
+            parsed_date,
+            time.max,
+            tzinfo=timezone.utc
         )
     except ValueError:
         parsed_dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+
         if parsed_dt.tzinfo is None:
             parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+
         return parsed_dt.astimezone(timezone.utc)
 
 
@@ -98,13 +105,15 @@ def health():
     }), 200
 
 
+# ============================================================
+# CLIENT LICENSE CHECK
+# โปรแกรมลูกค้าเรียก endpoint นี้โดยไม่ต้องใช้ Admin API Key
+# ============================================================
+
 @app.route("/check", methods=["POST"])
 def check_license():
-    """
-    Public endpoint สำหรับโปรแกรมลูกค้า:
-    ไม่ต้องใช้ SERVER_API_KEY เพราะ EXE ไม่ควรเก็บ admin secret
-    """
     data = request.get_json(silent=True) or {}
+
     license_key = str(data.get("license_key", "")).strip()
     hwid_raw = str(data.get("hwid", "")).strip()
 
@@ -137,7 +146,9 @@ def check_license():
         try:
             expire_dt = parse_expiry(row["expire_date"])
         except ValueError:
-            app.logger.exception("Invalid expire_date for license record")
+            app.logger.exception(
+                "Invalid expire_date for license record"
+            )
             return jsonify({
                 "status": "invalid",
                 "message": "Invalid expire_date in database"
@@ -152,21 +163,35 @@ def check_license():
 
         if not row["hwid_bound"]:
             conn.execute(
-                """UPDATE licenses
-                   SET hwid_bound = ?, last_seen = ?
-                   WHERE license_key = ?""",
-                (hwid_hash, now_utc().isoformat(), license_key)
+                """
+                UPDATE licenses
+                SET hwid_bound = ?, last_seen = ?
+                WHERE license_key = ?
+                """,
+                (
+                    hwid_hash,
+                    now_utc().isoformat(),
+                    license_key
+                )
             )
+
         elif row["hwid_bound"] != hwid_hash:
             return jsonify({
                 "status": "hwid_mismatch",
                 "message": "License is bound to a different machine"
             }), 200
+
         else:
             conn.execute(
-                """UPDATE licenses SET last_seen = ?
-                   WHERE license_key = ?""",
-                (now_utc().isoformat(), license_key)
+                """
+                UPDATE licenses
+                SET last_seen = ?
+                WHERE license_key = ?
+                """,
+                (
+                    now_utc().isoformat(),
+                    license_key
+                )
             )
 
         conn.commit()
@@ -178,10 +203,16 @@ def check_license():
     }), 200
 
 
+# ============================================================
+# ADMIN: ADD LICENSE
+# ต้องส่ง Header: X-API-Key
+# ============================================================
+
 @app.route("/admin/add", methods=["POST"])
 @require_api_key
 def admin_add():
     data = request.get_json(silent=True) or {}
+
     key = str(data.get("license_key", "")).strip()
     expire_date = str(data.get("expire_date", "")).strip()
     note = str(data.get("note", "")).strip()
@@ -193,22 +224,27 @@ def admin_add():
         }), 400
 
     try:
-        # ตรวจสอบรูปแบบวันหรือ ISO datetime
         parse_expiry(expire_date)
     except ValueError:
         return jsonify({
             "status": "error",
-            "message": "expire_date format must be YYYY-MM-DD or ISO datetime"
+            "message": (
+                "expire_date format must be YYYY-MM-DD "
+                "or ISO datetime"
+            )
         }), 400
 
     try:
         with get_db() as conn:
             conn.execute(
-                """INSERT INTO licenses (license_key, expire_date, note)
-                   VALUES (?, ?, ?)""",
+                """
+                INSERT INTO licenses (license_key, expire_date, note)
+                VALUES (?, ?, ?)
+                """,
                 (key, expire_date, note)
             )
             conn.commit()
+
     except sqlite3.IntegrityError:
         return jsonify({
             "status": "error",
@@ -221,14 +257,65 @@ def admin_add():
     }), 201
 
 
+# ============================================================
+# ADMIN: LIST LICENSES
+# แก้ปัญหา GET /admin/list ตอบ 404
+# ต้องส่ง Header: X-API-Key
+# ============================================================
+
+@app.route("/admin/list", methods=["GET"])
+@require_api_key
+def admin_list():
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT
+                id,
+                license_key,
+                hwid_bound,
+                expire_date,
+                is_active,
+                note,
+                created_at,
+                last_seen
+            FROM licenses
+            ORDER BY id DESC
+        """).fetchall()
+
+    licenses = []
+
+    for row in rows:
+        item = dict(row)
+        item["hwid_bound"] = bool(item["hwid_bound"])
+        item["is_active"] = bool(item["is_active"])
+        licenses.append(item)
+
+    return jsonify({
+        "status": "ok",
+        "licenses": licenses
+    }), 200
+
+
+# ============================================================
+# ADMIN DASHBOARD
+# ============================================================
+
 @app.route("/admin", methods=["GET"])
 def admin_dashboard():
     admin_file = BASE_DIR / "admin.html"
+
     if not admin_file.is_file():
-        return "admin.html not found; include it in the Render deployment", 404
+        return (
+            "admin.html not found; include it in the Render deployment",
+            404
+        )
+
     return send_file(admin_file)
 
 
 if __name__ == "__main__":
-    # สำหรับรันทดสอบในเครื่องเท่านั้น; Render ควรใช้ Gunicorn
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
+    # สำหรับทดสอบในเครื่องเท่านั้น
+    # Render ควรใช้ Gunicorn ตาม Start Command ของบริการ
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "5000"))
+    )
