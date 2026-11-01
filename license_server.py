@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template_string
 
 app = Flask(__name__)
 
@@ -129,59 +129,4 @@ def admin_add():
     try:
         datetime.fromisoformat(expire_date)
     except ValueError:
-        return jsonify({"status": "error", "message": "expire_date format: YYYY-MM-DD"}), 400
-
-    try:
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO licenses (license_key, expire_date, note) VALUES (?, ?, ?)",
-                (key, expire_date, note),
-            )
-            conn.commit()
-    except sqlite3.IntegrityError:
-        return jsonify({"status": "error", "message": "license_key already exists"}), 409
-
-    return jsonify({"status": "ok", "message": f"Added {key} expires {expire_date}"}), 201
-
-@app.route("/admin/list", methods=["GET"])
-@require_api_key
-def admin_list():
-    try:
-        with get_db() as conn:
-            rows = conn.execute("SELECT license_key, hwid_bound, expire_date, is_active, note, created_at, last_seen FROM licenses").fetchall()
-            licenses = [dict(row) for row in rows]
-        return jsonify({"status": "success", "licenses": licenses}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route("/admin/reset_hwid", methods=["POST"])
-@require_api_key
-def admin_reset_hwid():
-    data = request.get_json(silent=True) or {}
-    license_key = str(data.get("license_key", "")).strip()
-
-    if not license_key:
-        return jsonify({"status": "error", "message": "license_key required"}), 400
-
-    try:
-        with get_db() as conn:
-            cursor = conn.execute("UPDATE licenses SET hwid_bound = NULL WHERE license_key = ?", (license_key,))
-            conn.commit()
-            if cursor.rowcount == 0:
-                return jsonify({"status": "error", "message": "License key not found"}), 404
-        return jsonify({"status": "success", "message": f"Reset HWID for {license_key}"}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-# ─── ADMIN WEB DASHBOARD ──────────────────────────────────────────────────
-@app.route("/admin", methods=["GET"])
-def admin_dashboard():
-    html_content = """<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <title>WarZ License Admin Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-[#0a0c10] text-[#f8fafc] font-sans min-h-screen p-6">
-    <div class="max-w
+        return jsonify({"status": "error", "message": "expire_
