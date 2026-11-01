@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: warz-license-api
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn license_server:app
+    envVars:
+      - key: SERVER_API_KEY
+        generateValue: true
