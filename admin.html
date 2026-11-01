@@ -1,219 +1,259 @@
+
 <!DOCTYPE html>
 <html lang="th">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>WarZ License Admin Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WarZ Usage Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-[#0a0c10] text-[#f8fafc] font-sans min-h-screen p-6">
-    <div class="max-w-5xl mx-auto">
-        <h1 class="text-2xl font-bold mb-6 text-[#d4af37]">🛡️ WarZ License Admin Dashboard</h1>
 
-        <div class="bg-[#10141d] p-4 rounded-lg border border-[#222a3a] mb-6 shadow-lg">
-            <label class="block text-sm font-semibold mb-2 text-[#8a96a8]">Admin API Key:</label>
-            <input type="password" id="apiKey" autocomplete="off"
-                   placeholder="ใส่ SERVER_API_KEY ที่ตั้งไว้บน Render"
-                   class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-white focus:outline-none focus:border-[#d4af37]">
-            <p class="text-xs text-[#8a96a8] mt-2">API Key จะถูกเก็บไว้ใน Local Storage ของเบราว์เซอร์นี้เท่านั้น</p>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+
+<main class="mx-auto max-w-6xl p-6">
+
+    <header class="mb-8">
+        <h1 class="text-3xl font-bold">
+            WarZ Usage Dashboard
+        </h1>
+
+        <p class="mt-2 text-slate-400">
+            ระบบตรวจสอบจำนวนผู้ใช้งานโปรแกรม
+        </p>
+    </header>
+
+    <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-5">
+
+        <label class="mb-2 block text-sm">
+            Admin API Key
+        </label>
+
+        <div class="flex flex-wrap gap-2">
+
+            <input
+                id="apiKey"
+                type="password"
+                autocomplete="off"
+                placeholder="SERVER_API_KEY"
+                class="min-w-0 flex-1 rounded-lg bg-slate-950 border border-slate-700 p-3"
+            >
+
+            <button
+                id="saveKey"
+                class="rounded-lg bg-cyan-500 px-5 py-2 font-semibold text-slate-950"
+            >
+                Save Key
+            </button>
+
         </div>
 
-        <div class="bg-[#10141d] p-6 rounded-lg border border-[#222a3a] mb-6 shadow-lg">
-            <h2 class="text-lg font-bold mb-4 text-[#34d399]">➕ เพิ่ม License ใหม่</h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <div>
-                    <label class="block text-xs text-[#8a96a8] mb-1">License Key</label>
-                    <input type="text" id="newKey" value="WARZ-"
-                           class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
-                </div>
-                <div>
-                    <label class="block text-xs text-[#8a96a8] mb-1">วันหมดอายุ</label>
-                    <input type="date" id="newExpire"
-                           class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
-                </div>
-                <div>
-                    <label class="block text-xs text-[#8a96a8] mb-1">หมายเหตุ / ชื่อลูกค้า</label>
-                    <input type="text" id="newNote" placeholder="เช่น ลูกค้า (30 วัน)"
-                           class="w-full bg-[#121622] border border-[#222a3a] rounded px-3 py-2 text-sm text-white">
-                </div>
-            </div>
-            <button id="addBtn" onclick="addLicense()"
-                    class="bg-[#d4af37] text-[#181d2a] font-bold px-4 py-2 rounded hover:bg-[#b88628] transition">บันทึกและสร้าง Key</button>
+        <p class="mt-2 text-xs text-slate-500">
+            ใช้สำหรับผู้ดูแลระบบเท่านั้น ห้ามนำไปใส่ใน EXE
+        </p>
+
+    </section>
+
+    <p id="status" class="mb-4 text-sm text-slate-400">
+        รอเชื่อมต่อ
+    </p>
+
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <p class="text-slate-400">Installations ทั้งหมด</p>
+            <p id="total" class="mt-3 text-3xl font-bold">—</p>
         </div>
 
-        <div class="bg-[#10141d] p-6 rounded-lg border border-[#222a3a] shadow-lg">
-            <div class="flex justify-between items-center mb-4 gap-3">
-                <h2 class="text-lg font-bold text-[#38bdf8]">📋 รายชื่อ License ทั้งหมด</h2>
-                <button onclick="loadLicenses()"
-                        class="bg-[#222a3a] text-white px-3 py-1.5 rounded text-sm hover:bg-[#26354d] transition">🔄 รีเฟรชข้อมูล</button>
-            </div>
-            <div id="status" class="text-sm mb-3 text-[#8a96a8]" role="status"></div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-[#222a3a] text-[#8a96a8] text-sm">
-                            <th class="p-3">License Key</th>
-                            <th class="p-3">Note / ลูกค้า</th>
-                            <th class="p-3">HWID</th>
-                            <th class="p-3">หมดอายุ</th>
-                            <th class="p-3">จัดการ</th>
-                        </tr>
-                    </thead>
-                    <tbody id="licenseTable" class="text-sm">
-                        <tr><td colspan="5" class="p-4 text-center text-[#8a96a8]">กำลังโหลดข้อมูล...</td></tr>
-                    </tbody>
-                </table>
-            </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <p class="text-slate-400">ออนไลน์</p>
+            <p id="online" class="mt-3 text-3xl font-bold text-emerald-400">—</p>
         </div>
-    </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <p class="text-slate-400">ใช้งานวันนี้</p>
+            <p id="today" class="mt-3 text-3xl font-bold">—</p>
+        </div>
+
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+            <p class="text-slate-400">เปิดโปรแกรมวันนี้</p>
+            <p id="launches" class="mt-3 text-3xl font-bold">—</p>
+        </div>
+
+    </section>
+
+    <section class="mt-8 overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+
+        <div class="border-b border-slate-800 p-5">
+            <h2 class="font-semibold">
+                ประวัติการใช้งานล่าสุด
+            </h2>
+        </div>
+
+        <div class="overflow-x-auto">
+
+            <table class="w-full text-left text-sm">
+
+                <thead class="bg-slate-800">
+                    <tr>
+                        <th class="p-4">เวลา UTC</th>
+                        <th class="p-4">Installation ID</th>
+                        <th class="p-4">Version</th>
+                    </tr>
+                </thead>
+
+                <tbody id="sessions">
+                    <tr>
+                        <td colspan="3" class="p-5 text-center text-slate-500">
+                            ยังไม่มีข้อมูล
+                        </td>
+                    </tr>
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </section>
+
+    <p class="mt-5 text-xs text-slate-500">
+        Heartbeat ทุก 60 วินาที · Offline เมื่อไม่มีข้อมูลเกิน 120 วินาที
+    </p>
+
+    <button
+        id="refresh"
+        class="mt-5 rounded-lg bg-slate-700 px-5 py-2 hover:bg-slate-600"
+    >
+        Refresh
+    </button>
+
+</main>
 
 <script>
-    const apiKeyInput = document.getElementById('apiKey');
-    const tbody = document.getElementById('licenseTable');
-    const statusBox = document.getElementById('status');
 
-    apiKeyInput.value = localStorage.getItem('warz_admin_key') || '';
-    apiKeyInput.addEventListener('input', () => {
-        localStorage.setItem('warz_admin_key', apiKeyInput.value);
-    });
+const API = location.origin;
 
-    async function apiRequest(endpoint, method = 'GET', data = null) {
-        const key = apiKeyInput.value.trim();
-        if (!key) throw new Error('กรุณากรอก Admin API Key ก่อน');
+const $ = id => document.getElementById(id);
 
-        const options = {
-            method,
-            headers: { 'X-API-Key': key }
-        };
-        if (data !== null) {
-            options.headers['Content-Type'] = 'application/json';
-            options.body = JSON.stringify(data);
-        }
+function getKey() {
+    return $("apiKey").value.trim();
+}
 
-        const response = await fetch(endpoint, options);
-        let result;
-        try {
-            result = await response.json();
-        } catch (_) {
-            throw new Error(`Server ตอบกลับไม่ใช่ JSON (HTTP ${response.status})`);
-        }
+function headers() {
+    return {
+        "X-API-Key": getKey()
+    };
+}
 
-        if (!response.ok) {
-            throw new Error(result.message || `HTTP ${response.status}`);
-        }
-        return result;
+function formatDate(value) {
+    return new Date(value).toLocaleString();
+}
+
+async function loadDashboard() {
+
+    if (!getKey()) {
+        $("status").textContent = "กรุณาใส่ Admin API Key";
+        return;
     }
 
-    function showTableMessage(message, color = 'text-red-400') {
+    $("status").textContent = "กำลังโหลดข้อมูล...";
+
+    try {
+
+        const [statsResponse, recentResponse] =
+            await Promise.all([
+
+                fetch(API + "/admin/stats", {
+                    headers: headers()
+                }),
+
+                fetch(API + "/admin/recent?limit=50", {
+                    headers: headers()
+                })
+
+            ]);
+
+        if (!statsResponse.ok || !recentResponse.ok) {
+            throw new Error("API Key ไม่ถูกต้อง หรือ API มีปัญหา");
+        }
+
+        const stats = await statsResponse.json();
+        const recent = await recentResponse.json();
+
+        $("total").textContent = stats.total_installations;
+        $("online").textContent = stats.online_installations;
+        $("today").textContent = stats.active_today;
+        $("launches").textContent = stats.launches_today;
+
+        const tbody = $("sessions");
         tbody.replaceChildren();
-        const tr = document.createElement('tr');
-        const td = document.createElement('td');
-        td.colSpan = 5;
-        td.className = `p-4 text-center ${color}`;
-        td.textContent = message;
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-    }
 
-    async function addLicense() {
-        const license_key = document.getElementById('newKey').value.trim();
-        const expire_date = document.getElementById('newExpire').value;
-        const note = document.getElementById('newNote').value.trim();
+        if (!recent.sessions.length) {
 
-        if (!license_key || !expire_date) {
-            alert('กรุณากรอก License Key และวันหมดอายุ');
-            return;
-        }
+            const tr = document.createElement("tr");
+            const td = document.createElement("td");
 
-        try {
-            const result = await apiRequest('/admin/add', 'POST', {
-                license_key, expire_date, note
-            });
-            if (result.status === 'ok') {
-                alert('เพิ่ม License สำเร็จ');
-                await loadLicenses();
-            } else {
-                throw new Error(result.message || 'เพิ่ม License ไม่สำเร็จ');
-            }
-        } catch (error) {
-            alert('เกิดข้อผิดพลาด: ' + error.message);
-        }
-    }
+            td.colSpan = 3;
+            td.className = "p-5 text-center text-slate-500";
+            td.textContent = "ยังไม่มีประวัติ";
 
-    async function loadLicenses() {
-        showTableMessage('กำลังโหลดข้อมูล...', 'text-[#8a96a8]');
-        statusBox.textContent = '';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
 
-        try {
-            const result = await apiRequest('/admin/list', 'GET');
+        } else {
 
-            // Server license_server.py ส่ง status: "ok" ไม่ใช่ "success"
-            if (result.status !== 'ok' || !Array.isArray(result.licenses)) {
-                throw new Error(result.message || 'รูปแบบข้อมูลจาก Server ไม่ถูกต้อง');
-            }
+            for (const row of recent.sessions) {
 
-            tbody.replaceChildren();
+                const tr = document.createElement("tr");
 
-            if (result.licenses.length === 0) {
-                showTableMessage('ยังไม่มี License ในระบบ', 'text-[#8a96a8]');
-                return;
-            }
+                for (const value of [
+                    formatDate(row.started_at),
+                    row.installation_id,
+                    row.app_version || "—"
+                ]) {
 
-            for (const item of result.licenses) {
-                const tr = document.createElement('tr');
-                tr.className = 'border-b border-[#222a3a]/50 hover:bg-[#161b26]';
+                    const td = document.createElement("td");
 
-                const values = [
-                    [item.license_key || '-', 'p-3 font-mono text-[#d4af37]'],
-                    [item.note || '-', 'p-3'],
-                    [item.hwid_bound ? 'ผูกเครื่องแล้ว' : 'ยังไม่ผูกเครื่อง', 'p-3 text-xs text-[#8a96a8]'],
-                    [item.expire_date || '-', 'p-3 text-xs']
-                ];
-
-                for (const [value, className] of values) {
-                    const td = document.createElement('td');
-                    td.className = className;
+                    td.className = "p-4 border-t border-slate-800";
                     td.textContent = value;
+
                     tr.appendChild(td);
                 }
 
-                const actionTd = document.createElement('td');
-                actionTd.className = 'p-3';
-                const button = document.createElement('button');
-                button.textContent = 'Reset HWID';
-                button.className = 'bg-red-900/40 text-red-400 border border-red-700/50 px-2 py-1 rounded text-xs hover:bg-red-900 transition';
-                button.addEventListener('click', () => resetHwid(item.license_key));
-                actionTd.appendChild(button);
-                tr.appendChild(actionTd);
                 tbody.appendChild(tr);
             }
-
-            statusBox.textContent = `โหลดข้อมูลสำเร็จ ${result.licenses.length} รายการ`;
-            statusBox.className = 'text-sm mb-3 text-emerald-400';
-        } catch (error) {
-            showTableMessage(error.message);
-            statusBox.textContent = 'โหลดรายการ License ไม่สำเร็จ';
-            statusBox.className = 'text-sm mb-3 text-red-400';
         }
+
+        $("status").textContent =
+            "อัปเดตล่าสุด " + new Date().toLocaleTimeString();
+
+    } catch (error) {
+
+        $("status").textContent = error.message;
+
     }
+}
 
-    async function resetHwid(license_key) {
-        if (!confirm(`ต้องการรีเซ็ต HWID ของคีย์ ${license_key} ใช่หรือไม่?`)) return;
+$("saveKey").addEventListener("click", () => {
 
-        try {
-            const result = await apiRequest('/admin/reset_hwid', 'POST', { license_key });
-            if (result.status === 'ok') {
-                alert('รีเซ็ต HWID สำเร็จ');
-                await loadLicenses();
-            } else {
-                throw new Error(result.message || 'รีเซ็ต HWID ไม่สำเร็จ');
-            }
-        } catch (error) {
-            alert('เกิดข้อผิดพลาด: ' + error.message);
-        }
-    }
+    localStorage.setItem(
+        "warz_usage_admin_key",
+        getKey()
+    );
 
-    window.addEventListener('load', loadLicenses);
+    loadDashboard();
+
+});
+
+$("refresh").addEventListener("click", loadDashboard);
+
+$("apiKey").value =
+    localStorage.getItem("warz_usage_admin_key") || "";
+
+if ($("apiKey").value) {
+    loadDashboard();
+}
+
 </script>
+
 </body>
 </html>
